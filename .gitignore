@@ -21,3 +21,12 @@ package-lock.json
 .elasticbeanstalk/*
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
+src/abis/EIP20.json
+
+src/abis/PLCRVoting.json
+
+src/abis/Parameterizer.json
+
+src/abis/PLCRVoting.json
+
+src/abis/Registry.json
