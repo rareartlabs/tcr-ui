@@ -2,23 +2,36 @@ import { all, select, takeLatest, fork, call, put } from 'redux-saga/effects'
 import { delay } from 'redux-saga'
 import EthAbi from 'ethjs-abi'
 import Eth from 'ethjs'
+// import { Organization } from '@governx/governx-lib'
 
-import { newArray, updateItems, pollLogsRequest } from '../actions'
+import { newArray, updateItems, pollLogsRequest, updateBalancesRequest } from '../actions'
 
 import { SET_CONTRACTS, POLL_LOGS_REQUEST } from '../actions/constants'
-
-import { updateTokenBalancesSaga } from './token'
 
 import log_utils from '../utils/log_utils'
 import abi_utils from '../utils/abi_utils'
 import { toUnitAmount } from '../utils/units_utils'
-import { selectEthjs, selectNetwork, selectRegistry, selectVoting } from '../selectors/index'
+
+import { selectEthjs, selectNetworkID, selectRegistry, selectVoting, selectAccount } from '../selectors'
+
 import { convertUnixTimeLeft, dateHasPassed } from '../utils/format-date';
 
 export default function* logsSaga() {
-  yield takeLatest(SET_CONTRACTS, getFreshLogs)
-  yield takeLatest(POLL_LOGS_REQUEST, pollLogsSaga)
+  // yield takeLatest(SET_CONTRACTS, getFreshLogs)
+  // yield takeLatest(SET_CONTRACTS, governX)
+  // yield takeLatest(POLL_LOGS_REQUEST, pollLogsSaga)
 }
+
+// function* governX() {
+//   const from = yield select(selectAccount)
+
+//   const { poll, tcr, account } = new Organization({
+//     address: '0x2e9321fc399202ea887e69497c5a00df2a47b358',
+//     from,
+//     network: 'rinkeby',
+//   });
+//   console.log('poll, tcr, account', poll, tcr, account)
+// }
 
 let lastReadBlockNumber = 0
 
@@ -29,23 +42,23 @@ function* getFreshLogs() {
       handleLogs,
       lastReadBlockNumber,
       'latest',
-      '',
+      '', // All events
       registry
     )
 
     yield put(newArray(applications))
-    yield fork(updateTokenBalancesSaga, registry.address)
+    yield put(updateBalancesRequest())
   } catch (err) {
     console.log('Fresh log error:', err)
     throw new Error(err.message)
     // yield put(logsError('logs error', err))
   }
 
-  yield fork(pollController)
+  // yield fork(pollController)
 }
 
 function* pollController() {
-  const network = yield select(selectNetwork)
+  const network = yield select(selectNetworkID)
   let pollInterval = 15000 // 15 seconds
 
   if (network === '420') {
@@ -82,11 +95,10 @@ function* pollLogsSaga(action) {
       '',
       contract
     )
-    if (newLogs.length === 1) {
+    if (newLogs.length > 0) {
       console.log(newLogs.length, 'newLog', newLogs[0])
       yield put(updateItems(newLogs))
-      yield fork(updateTokenBalancesSaga, registry.address)
-      yield fork(updateTokenBalancesSaga, voting.address)
+      yield put(updateBalancesRequest())
     }
   } catch (err) {
     console.log('Poll logs error:', err)
@@ -153,6 +165,7 @@ async function buildListing(contract, block, dLog, i, txDetails, voting) {
     let commitExpiry
     let revealEndDate
     let revealExpiry
+
     if (dLog._eventName === '_Challenge' || dLog._eventName === '_VoteCommitted') {
       const poll = await voting.contract.pollMap(dLog.pollID.toString())
       commitEndDate = poll[0].toNumber()
@@ -200,7 +213,7 @@ async function buildListing(contract, block, dLog, i, txDetails, voting) {
     }
 
     const finalForm = log_utils.shapeShift(block, tx, details)
-    console.log('finalForm', finalForm)
+    console.log('listing (individual log):', finalForm)
     return finalForm
   } catch (err) {
     console.log('build listing error', err)

@@ -5,36 +5,27 @@ export const selectHome = state => state.get('home')
 export const selectError = createSelector(selectHome, homeState =>
   homeState.get('error')
 )
-export const selectParameters = createSelector(selectHome, homeState =>
-  homeState.get('parameters')
-)
-export const selectECRecovered = createSelector(selectHome, homeState =>
-  homeState.get('ecRecovered')
-)
-export const selectPrerequisites = createSelector(selectHome, homeState =>
-  homeState.get('prerequisites')
-)
 
-// Ethjs
 export const selectEthjs = createSelector(selectHome, homeState =>
   homeState.get('ethjs')
 )
+export const selectAccount = createSelector(selectHome, homeState =>
+  homeState.get('account')
+)
 
-// Wallet
-export const selectWallet = createSelector(selectHome, homeState =>
-  homeState.get('wallet')
+export const selectMiningStatus = createSelector(selectHome, homeState =>
+  homeState.get('miningStatus')
 )
-export const selectNetwork = createSelector(selectWallet, wallet =>
-  wallet.get('network')
+export const selectNetworkID = createSelector(selectHome, homeState =>
+  homeState.get('networkID')
 )
-export const selectAccount = createSelector(selectWallet, wallet =>
-  wallet.get('account')
+
+// Balances
+export const selectBalances = createSelector(selectHome, homeState =>
+  homeState.get('balances')
 )
 
 // Contracts
-export const selectMinDeposit = createSelector(selectHome, homeState =>
-  homeState.get('minDeposit')
-)
 export const selectAllContracts = createSelector(selectHome, homeState =>
   homeState.get('contracts')
 )
@@ -51,15 +42,13 @@ export const selectParameterizer = createSelector(selectAllContracts, contracts 
   contracts.get('parameterizer')
 )
 
-export const selectRequest = createSelector(selectHome, homeState =>
-  homeState.get('request')
-)
-export const selectUDappMethods = createSelector(selectHome, homeState =>
-  homeState.get('udappMethods')
+// Parameters
+export const selectParameters = createSelector(selectHome, homeState =>
+  homeState.get('parameters')
 )
 
 
-// All listings
+// Listings
 export const selectAllListings = createSelector(selectHome, homeState =>
   homeState.get('listings')
 )
@@ -80,3 +69,10 @@ export const selectFaceoffs = createSelector(selectAllListings, listings =>
 export const selectWhitelist = createSelector(selectAllListings, listings =>
   listings.filter(li => li.getIn(['latest', 'whitelisted']))
 )
+
+// export const selectECRecovered = createSelector(selectHome, homeState =>
+//   homeState.get('ecRecovered')
+// )
+// export const selectPrerequisites = createSelector(selectHome, homeState =>
+//   homeState.get('prerequisites')
+// )

@@ -11,28 +11,25 @@ const UDappHOC = WrappedComponent => {
       }
     }
 
-    // this is a horrendous hack to make default values work
-    // TODO: fix this pathetic piece of code
-    componentWillReceiveProps(newProps) {
-      // console.log('HOC OLD PROPS:', this.props)
-      // console.log('HOC NEW PROPS:', newProps)
+    // componentWillReceiveProps(newProps) {
+    //   // console.log('HOC OLD PROPS:', this.props)
+    //   // console.log('HOC NEW PROPS:', newProps)
+    //   if (newProps.request.get('context').size > 0) {
+    //     const listingStr = newProps.request.getIn(['context', 'listing'])
+    //     const _pollID = newProps.request.getIn(['context', 'latest', 'pollID'])
 
-      if (newProps.request.get('context').size > 0) {
-        const listingStr = newProps.request.getIn(['context', 'listing'])
-        const _pollID = newProps.request.getIn(['context', 'latest', 'pollID'])
-
-        this.setState(prevState => ({
-          ...prevState,
-          [newProps.actions[0]]: {
-            ...prevState[newProps.actions[0]],
-            _listingHash: listingStr,
-            _data: listingStr,
-            _pollID,
-            // _prevPollID,
-          },
-        }))
-      }
-    }
+    //     this.setState(prevState => ({
+    //       ...prevState,
+    //       [newProps.actions[0]]: {
+    //         ...prevState[newProps.actions[0]],
+    //         _listingHash: listingStr,
+    //         _data: listingStr,
+    //         _pollID,
+    //         // _prevPollID,
+    //       },
+    //     }))
+    //   }
+    // }
 
     handleInputChange = async (e, method, input) => {
       const methName = method.name
@@ -61,7 +58,8 @@ const UDappHOC = WrappedComponent => {
     handleHOCSendTransaction = async (e, method, contract) => {
       e.preventDefault()
       const args = this.getMethodArgs(method)
-      this.props.handleSendTransaction({ method, args, contract })
+      console.log('this.state', this.state)
+      this.props.handleSendTransaction({ method, args, contract, listing: this.state[method.name]._listingHash })
     }
 
     render() {
