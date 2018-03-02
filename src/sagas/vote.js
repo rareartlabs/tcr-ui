@@ -30,7 +30,7 @@ export default function* voteSaga() {
 export function* requestVotingRightsSaga(action) {
   try {
     const voting = yield select(selectVoting)
-    // console.log('action', action)
+    console.log('request voting rights saga action', action)
     const tokens = yield call(toNaturalUnitAmount, action.payload.args[0], 18)
     const txData = EthAbi.encodeMethod(action.payload.method, [tokens])
     // const receipt = yield call(voting.contract.requestVotingRights, tokens.toString(10))
@@ -110,16 +110,10 @@ export function* commitVoteSaga(action) {
 
 
 export function* revealVoteSaga(action) {
-  console.log('reveal action', action)
-  // const registry = yield select(selectRegistry)
-  // const voting = yield select(selectVoting)
-  // const listingString = action.payload.args[0]
-  // const actualAmount = toNaturalUnitAmount(action.payload.args[1], 18)
-  // const listingHash = vote_utils.getListingHash(listingString)
-  // const finalArgs = [listingHash, actualAmount, listingString]
+  const voting = yield select(selectVoting)
+  const finalArgs = action.payload.args
+  const txData = EthAbi.encodeMethod(action.payload.method, finalArgs)
 
-  // const txData = EthAbi.encodeMethod(action.payload.method, finalArgs)
-
-  // const to = voting.address
-  // yield call(sendTransactionSaga, txData, to)
+  const to = voting.address
+  yield call(sendTransactionSaga, txData, to)
 }

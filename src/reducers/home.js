@@ -17,13 +17,13 @@ const initialState = fromJS({
   account: '',
   networkID: '',
   balances: {
-    ETH: '',
-    token: '',
-    registryAllowance: '',
-    votingAllowance: '',
-    votingRights: '',
-    lockedTokens: '',
-    claimableReward: '',
+    ETH: '0',
+    token: '0',
+    registryAllowance: '0',
+    votingAllowance: '0',
+    votingRights: '0',
+    lockedTokens: '0',
+    claimableReward: '0',
   },
   contracts: {
     registry: {},
@@ -31,11 +31,7 @@ const initialState = fromJS({
     voting: {},
     parameterizer: {},
   },
-  parameters: { minDeposit: '' },
-  miningStatus: {
-    open: false,
-    message: ''
-  },
+  parameters: { minDeposit: '', applyStageLen: '' },
   listings: {},
 })
 

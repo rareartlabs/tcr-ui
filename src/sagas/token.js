@@ -11,7 +11,7 @@ import {
 import { toUnitAmount } from '../utils/units_utils'
 
 export default function* tokenSaga() {
-  // yield takeEvery(UPDATE_BALANCES_REQUEST, updateBalancesSaga)
+  yield takeEvery(UPDATE_BALANCES_REQUEST, updateBalancesSaga)
 }
 
 function* updateBalancesSaga() {
@@ -33,7 +33,7 @@ function* updateBalancesSaga() {
     const tokenBalance = toUnitAmount(tokenBalanceRaw, token.decimalPower).toString(10)
     const registryAllowance = toUnitAmount(registryAllowanceRaw, token.decimalPower).toString(10)
     const votingAllowance = toUnitAmount(votingAllowanceRaw, token.decimalPower).toString(10)
-    const votingRights = toUnitAmount(votingRightsRaw, 18)
+    const votingRights = toUnitAmount(votingRightsRaw, 18).toString(10)
 
     // const ethBalance = yield call(ethjs.getBalance, owner)
 
@@ -47,7 +47,7 @@ function* updateBalancesSaga() {
     // const votingAllowance = toUnitAmount(votingAllowanceRaw, token.decimalPower).toString(10)
 
     // const votingRightsRaw = yield call(voting.contract.voteTokenBalance.call, owner)
-    // const votingRights = toUnitAmount(votingRightsRaw, 18)
+    // const votingRights = toUnitAmount(votingRightsRaw, 18).toString(10)
 
     yield put(
       updateBalances({

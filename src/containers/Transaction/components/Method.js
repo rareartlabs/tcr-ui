@@ -5,7 +5,7 @@ import Button from '../../../components/Button'
 import translate, { translateRaw } from '../../../translations/index'
 import styled from 'styled-components'
 import { colors } from '../../../colors'
-import { BN, toUnitAmount } from '../../../utils/units_utils';
+// import { BN, toUnitAmount } from '../../../utils/units_utils';
 
 const styles = {
   udappMethod: {
@@ -34,18 +34,9 @@ const Method = props => {
       <ColorH3>{`${props.method.name}`}</ColorH3>
 
       <MethodDescription>
-        {props.method.constant ? (
-          <div>
-            {translate(`call_${props.method.name}`)}
-          </div>
-        ) : (
-            <div>
-              {translate(`tx_${props.method.name}`)}
-              {props.method.name === 'apply' ? (
-                toUnitAmount(BN(props.minDeposit), 18).toString(10) + ' tokens'
-              ) : ''}
-            </div>
-          )}
+        <div>
+          {props.method.constant ? translate(`call_${props.method.name}`) : translate(`tx_${props.method.name}`)}
+        </div>
       </MethodDescription>
 
       {/* <MethodDescription>
@@ -66,13 +57,13 @@ const Method = props => {
             <Input
               id={input.name}
               placeholder={translateRaw(`input${input.name}`)}
-              defaultValue={
-                input.name === '_voter' || input.name === '_owner'
-                  ? `${props.account}`
-                  : input.name === '_listingHash'
-                    ? props.request.getIn(['context', 'listing'])
-                    : ''
-              }
+              // defaultValue={
+                // input.name === '_voter' || input.name === '_owner'
+                //   ? `${props.account}`
+                //   : input.name === '_listingHash'
+                    // ? props.request.getIn(['context', 'listing'])
+                    // : ''
+              // }
               onChange={e => props.hocInputChange(e, props.method, input)}
             />
           )}
