@@ -30,3 +30,5 @@ src/abis/Parameterizer.json
 src/abis/PLCRVoting.json
 
 src/abis/Registry.json
+
+src/abis/Migrations.json
