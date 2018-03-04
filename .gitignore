@@ -2,8 +2,7 @@ node_modules
 build
 .DS_Store
 tcr
-
-package-lock.json
+zzz
 
 npm-debug.log*
 yarn-debug.log*
@@ -15,6 +14,7 @@ yarn-error.log*
 .elasticbeanstalk/*
 !.elasticbeanstalk/*.cfg.yml
 !.elasticbeanstalk/*.global.yml
+<<<<<<< HEAD
 src/abis/EIP20.json
 
 src/abis/PLCRVoting.json
@@ -44,3 +44,17 @@ src/abis/Parameterizer.json
 src/abis/PLCRVoting.json
 
 src/abis/Registry.json
+=======
+
+src/abis/*.json
+>>>>>>> upstream/master
+
+src/abis/EIP20.json
+
+src/abis/Parameterizer.json
+
+src/abis/PLCRVoting.json
+
+src/abis/Registry.json
+
+package-lock.json

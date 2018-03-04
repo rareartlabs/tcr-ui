@@ -7,7 +7,7 @@
     "babel-polyfill": "6.26.0",
     "bluebird": "3.5.1",
     "ethereumjs-abi": "0.6.5",
-    "ethereumjs-util": "5.1.2",
+    "ethereumjs-util": "5.1.5",
     "ethjs": "0.3.1",
     "ethjs-abi": "0.2.1",
     "express": "4.16.2",
@@ -22,6 +22,7 @@
     "path": "0.12.7",
     "react": "16.2.0",
     "react-dom": "16.2.0",
+    "react-json-tree": "0.11.0",
     "react-markdown": "3.1.4",
     "react-modal": "3.1.11",
     "react-redux": "5.0.6",
@@ -51,5 +52,22 @@
     "babel-eslint": "8.2.2",
     "eslint": "4.18.1",
     "eslint-plugin-react": "7.7.0"
+  },
+  "eslintConfig": {
+    "plugins": [
+      "react"
+    ],
+    "parserOptions": {
+      "ecmaVersion": 6,
+      "sourceType": "module",
+      "ecmaFeatures": {
+        "jsx": true
+      }
+    },
+    "rules": {
+      "arrow-body-style": 0,
+      "semi": 0
+    },
+    "parser": "babel-eslint"
   }
 }

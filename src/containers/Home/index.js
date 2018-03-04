@@ -3,6 +3,8 @@ import { connect } from 'react-redux'
 import { compose } from 'redux'
 import { createStructuredSelector } from 'reselect'
 import styled from 'styled-components'
+import JSONTree from 'react-json-tree'
+
 import {
   SidePanel,
   SidePanelSplit,
@@ -21,8 +23,12 @@ import {
 
 import { Icon } from 'semantic-ui-react'
 
+import translate from '../../translations'
+import { colors, jsonTheme } from '../../colors'
+
 import Identicon from '../../components/Identicon'
-import FlexContainer from '../../components/FlexContainer'
+import SidePanelCalls from './components/SidePanelCalls'
+import SideSplit from './components/SideSplit'
 
 import {
   setupEthereum,
@@ -43,14 +49,22 @@ import {
   selectCandidates,
   selectFaceoffs,
   selectWhitelist,
-  selectTxnStatus,
+  selectError,
+  selectRegistryMethods,
+  selectVotingMethods,
+  selectMiningStatus,
 } from '../../selectors'
 
-import { toUnitAmount, toNaturalUnitAmount, withCommas, trimDecimalsThree, toEther } from '../../utils/units_utils';
-import translate from '../../translations';
-import vote_utils from '../../utils/vote_utils';
-import { colors } from '../../colors';
-import { dateHasPassed } from '../../utils/format-date';
+import {
+  toUnitAmount,
+  toNaturalUnitAmount,
+  withCommas,
+  BN,
+} from '../../utils/units_utils'
+import vote_utils from '../../utils/vote_utils'
+import { dateHasPassed } from '../../utils/format-date'
+import SideText from './components/SideText'
+import SideTextInput from './components/SideTextInput'
 
 const AppBarWrapper = styled.div`
   flex-shrink: 0;
@@ -60,7 +74,7 @@ const AppBar = styled.div`
   justify-content: space-around;
   align-items: center;
   width: 100%;
-  height: 5em;
+  height: 4em;
   background-color: ${colors.offWhite};
   border-bottom: 1px solid ${colors.orange};
   padding: 0 3em;
@@ -90,57 +104,95 @@ class Home extends Component {
       openChallenge: false,
       openCommitVote: false,
       openRevealVote: false,
-      openCallPanel: false,
+      openClaimVoterReward: false,
       selectedOne: false,
       revealedVote: false,
+      methodName: false,
+      visibleApprove: false,
+      voterReward: '0',
     }
   }
   componentDidMount() {
     this.props.onSetupEthereum()
   }
-  handleCall = e => {
-    console.log('e', e)
+  handleCall = (contract, method) => {
+    const args = Object.values(this.state[method.name])
+    console.log('args', args)
+    this.props.onCall({ args, contract, method })
+  }
+  handleCallInputChange = (e, methodName, inputName) => {
+    const value = e.target.value
+    this.setState(prevState => ({
+      ...prevState,
+      [methodName]: {
+        ...prevState[methodName],
+        [inputName]: value,
+      },
+    }))
   }
 
   // side panel
   closeSidePanel = () => {
-    this.setState({ opened: false, openCallPanel: false, openChallenge: false, openCommitVote: false, openRevealVote: false })
-  }
-  openCallPanel = () => {
     this.setState({
-      openCallPanel: true,
+      opened: false,
+      openChallenge: false,
+      openCommitVote: false,
+      openRevealVote: false,
+      openClaimVoterReward: false,
     })
+  }
+  openApprove = () => {
+    this.setState({ visibleApprove: true })
   }
   openSidePanel = (one, openThis) => {
     if (!openThis) {
       this.setState({
-        opened: true
+        opened: true,
       })
     } else {
       this.setState({
         selectedOne: one,
-        [openThis]: true
+        [openThis]: true,
       })
     }
+  }
+
+  getVoterReward = async (pollID, salt) => {
+    console.log('pollID, salt', pollID, salt)
+    let vR
+    try {
+      vR = await this.props.registry.contract.voterReward.call(
+        this.props.account,
+        pollID,
+        salt
+      )
+    } catch (err) {
+      vR = 'No reward :('
+    }
+    this.setState({
+      voterReward: vR.toString(10),
+    })
   }
 
   // input changes
   handleFileInput = e => {
     const file = e.target.files[0]
     const fr = new window.FileReader()
+    let pollID, salt
 
     fr.onload = () => {
       const contents = fr.result
+      const json = JSON.parse(contents)
 
       try {
-        const jsonFC = JSON.parse(contents)
         this.setState({
-          revealedVote: jsonFC
+          revealedVote: json,
         })
-        console.log('jsonFC', jsonFC)
       } catch (error) {
         throw new Error('Invalid Commit JSON file')
       }
+
+      this.getVoterReward(json.pollID, json.salt)
     }
 
     fr.readAsText(file)
@@ -151,100 +203,60 @@ class Home extends Component {
     })
   }
 
-  // token txns
-  handleApprove = async (contract) => {
-    const approved = await this.props.token.contract.approve(this.props[contract].address, toNaturalUnitAmount(this.state.numTokens, 18).toString(10))
-    console.log('approved!!', approved)
-  }
-  handleRequestVotingRights = () => {
-    const method = this.props.voting.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'requestVotingRights')[0]
-    this.props.onSendTransaction({
-      args: [
-        this.state.numTokens
-      ],
-      method,
-    })
+  handleSendTransaction = (methodName, listing, contract, voteOption) => {
+    const args = this.getMethodArgs(methodName, listing, contract, voteOption)
+    if (args) {
+      this.props.onSendTransaction({ methodName, args, listing, contract })
+    }
   }
 
-  // registry txns
-  handleApply = () => {
-    // this.props.token.contract.transfer('0xeda75f826f12dfb245144769d97bf6d47abd2473', '420000000000000000000000')
-    const method = this.props.registry.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'apply')[0]
-    this.props.onSendTransaction({
-      args: [
-        vote_utils.getListingHash(this.state.listingName),
-        toNaturalUnitAmount(this.state.numTokens, 18),
-        this.state.listingName,
-      ],
-      method,
-    })
-  }
-  handleDepositWithdraw = (one, methodName) => {
-    const method = this.props.registry.contract.abi.filter(methI => methI.type === 'function' && methI.name === methodName)[0]
-    this.props.onSendTransaction({
-      args: [
-        one.get('listingHash'),
-        toNaturalUnitAmount(420, 18),
-      ],
-      method,
-    })
-  }
-  handleChallenge = () => {
-    const method = this.props.registry.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'challenge')[0]
-    this.props.onSendTransaction({
-      args: [
-        this.state.selectedOne.get('listingHash'),
-        this.state.selectedOne.get('listingString')
-      ],
-      method,
-    })
-  }
-  handleUpdateStatus = (one) => {
-    const method = this.props.registry.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'updateStatus')[0]
-    this.props.onSendTransaction({
-      args: [
-        one.get('listingHash'),
-      ],
-      method,
-    })
-  }
-  handleRescueTokens = (one) => {
-    const method = this.props.voting.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'rescueTokens')[0]
-    this.props.onSendTransaction({
-      args: [
-        one.getIn(['latest', 'pollID'])
-      ],
-      method,
-    })
-  }
-
-  // voting txns
-  handleCommitVote = (voteOption) => {
-    const method = this.props.voting.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'commitVote')[0]
-    this.props.onSendTransaction({
-      args: [
-        this.state.selectedOne.getIn(['latest', 'pollID']),
-        voteOption,
-        this.state.numTokens
-      ],
-      listing: this.state.selectedOne.get('listingString'),
-      method,
-    })
-  }
-  handleRevealVote = () => {
-    const method = this.props.voting.contract.abi.filter(methI => methI.type === 'function' && methI.name === 'revealVote')[0]
-    this.props.onSendTransaction({
-      args: [
-        this.state.selectedOne.getIn(['latest', 'pollID']),
-        this.state.revealedVote.voteOption,
-        this.state.revealedVote.salt,
-      ],
-      method,
-    })
+  getMethodArgs(methodName, listing, contract, voteOption) {
+    return methodName === 'apply'
+      ? [
+          vote_utils.getListingHash(this.state.listingName),
+          toNaturalUnitAmount(this.state.numTokens, 18),
+          this.state.listingName,
+        ]
+      : methodName === 'challenge'
+        ? [
+            this.state.selectedOne.get('listingHash'),
+            this.state.selectedOne.get('listingString'),
+          ]
+        : methodName === 'updateStatus'
+          ? [listing.get('listingHash')]
+          : methodName === 'rescueTokens'
+            ? [listing.getIn(['latest', 'pollID'])]
+            : methodName === 'approve'
+              ? [
+                  this.props[contract].address,
+                  toNaturalUnitAmount(this.state.numTokens, 18),
+                ]
+              : methodName === 'requestVotingRights'
+                ? [this.state.numTokens]
+                : methodName === 'commitVote'
+                  ? [
+                      this.state.selectedOne.getIn(['latest', 'pollID']),
+                      voteOption,
+                      this.state.numTokens,
+                      this.state.selectedOne.get('listingString'),
+                    ]
+                  : methodName === 'revealVote'
+                    ? [
+                        this.state.selectedOne.getIn(['latest', 'pollID']),
+                        this.state.revealedVote.voteOption,
+                        this.state.revealedVote.salt,
+                      ]
+                    : methodName === 'claimVoterReward'
+                      ? [
+                          this.state.selectedOne.getIn(['latest', 'pollID']),
+                          this.state.revealedVote.salt,
+                        ]
+                      : false
   }
 
   render() {
     const {
+      error,
       candidates,
       faceoffs,
       whitelist,
@@ -253,326 +265,354 @@ class Home extends Component {
       networkID,
       parameters,
       token,
-      txnStatus,
+      miningStatus,
+      registryMethods,
+      votingMethods,
+      registry,
     } = this.props
 
     return (
       <div>
         <AppBarWrapper>
-          <AppBar>
-            <div>
+          {error ? (
+            <AppBar>
+              <div>{error.message}</div>
+            </AppBar>
+          ) : (
+            <AppBar>
+              <div>{registry.name}</div>
               <Identicon address={account} diameter={30} />
-            </div>
-            <OverFlowDiv>
-              {account}
-            </OverFlowDiv>
-            <div>
-              {`${withCommas(trimDecimalsThree(toEther(balances.get('ETH'))))} ΞTH`}
-            </div>
-            <div>
-              {`${withCommas(trimDecimalsThree(balances.get('token')))} ${token.symbol}`}
-            </div>
-            <div>
-              {`Registry Allowance: ${withCommas(balances.get('registryAllowance'))}`}
-            </div>
-            <div>
-              {`Voting Allowance: ${withCommas(balances.get('votingAllowance'))}`}
-            </div>
-            <div>
-              {`Voting Rights: ${withCommas(balances.get('votingRights'))}`}
-            </div>
-          </AppBar>
+              <div>{`Network: ${
+                networkID === '4'
+                  ? 'Rinkeby'
+                  : networkID === '1'
+                    ? 'Main Net'
+                    : networkID === '420' ? 'Ganache' : networkID
+              }`}</div>
+              <Text color="red" weight="bold">
+                {miningStatus && 'MINING'}
+              </Text>
+              <OverFlowDiv>{account}</OverFlowDiv>
+              {/* {`Ether Balance: ${withCommas(balances.get('ETH'))} ΞTH`}
+                {`${token.name} Balance: ${withCommas(trimDecimalsThree(balances.get('token')))} ${token.symbol}`} */}
+            </AppBar>
+          )}
         </AppBarWrapper>
 
-        {/* <Grid>
-          <Grid.Column width={4}>
-          <Menu fluid vertical tabular>
-              <Menu.Item name='registry' active={this.state.activeItem === 'bio'} onClick={this.handleItemClick} />
-              <Menu.Item name='applications' active={this.state.activeItem === 'pics'} onClick={this.handleItemClick} />
-              <Menu.Item name='committing' active={this.state.activeItem === 'companies'} onClick={this.handleItemClick} />
-              <Menu.Item name='revealing' active={this.state.activeItem === 'links'} onClick={this.handleItemClick} />
-            </Menu>
-          </Grid.Column>
-        </Grid> */}
+        <JSONTree
+          invertTheme={false}
+          theme={jsonTheme}
+          data={balances}
+          shouldExpandNode={(keyName, data, level) => false}
+        />
 
         <SidePanel
           title="Apply a Listing into the Registry"
           opened={this.state.opened}
           onClose={this.closeSidePanel}
         >
-          <SidePanelSplit children={[
-            <Section>
-              <Text weight='bold'>{'Application Period'}</Text>
-              <h1>{parameters.get('applyStageLen')}{' seconds'}</h1>
-            </Section>,
-            <Section>
-              <Text weight='bold'>{'Minimum Deposit'}</Text>
-              <h2>{toUnitAmount(parameters.get('minDeposit'), 18).toString()} {token.symbol}</h2>
-            </Section>
-          ]} />
+          <SideSplit
+            leftTitle={'Application Period'}
+            leftItem={
+              <div>
+                {parameters.get('applyStageLen')}
+                {' seconds'}
+              </div>
+            }
+            rightTitle={'Minimum Deposit'}
+            rightItem={
+              <div>
+                {toUnitAmount(parameters.get('minDeposit'), 18).toString()}{' '}
+                {token.symbol}
+              </div>
+            }
+          />
+
+          <SideSplit
+            leftTitle={'Token Balance'}
+            leftItem={balances.get('token')}
+            rightTitle={'Registry Allowance'}
+            rightItem={withCommas(balances.get('registryAllowance'))}
+          />
 
           <MarginDiv>
-            <Icon name='question' size='small' />
-            <Text color='grey' smallcaps>{'QUESTION'}</Text>
+            <Icon name="question circle outline" size="small" />
+            <Text color="grey" smallcaps>
+              {'QUESTION'}
+            </Text>
           </MarginDiv>
           <MarginDiv>
             <Text>{translate('sidebar_apply_question')}</Text>
           </MarginDiv>
           <MarginDiv>
-            <Icon name='checkmark' size='small' />
-            <Text color='grey' smallcaps>{'INSTRUCTIONS'}</Text>
+            <Icon name="check circle" size="small" />
+            <Text color="grey" smallcaps>
+              {'INSTRUCTIONS'}
+            </Text>
           </MarginDiv>
           <MarginDiv>
             <Text>{translate('sidebar_apply_instructions')}</Text>
           </MarginDiv>
 
           <MarginDiv>
-            <Text color='grey' smallcaps>{'LISTING NAME'}</Text>
-            <TextInput onChange={e => this.handleInputChange(e, 'listingName')} wide type='text' />
+            <Text color="grey" smallcaps>
+              {'LISTING NAME'}
+            </Text>
+            <TextInput
+              onChange={e => this.handleInputChange(e, 'listingName')}
+              wide
+              type="text"
+            />
           </MarginDiv>
 
           <MarginDiv>
-            <Text color='grey' smallcaps>{'TOKEN AMOUNT TO STAKE'}</Text>
-            <TextInput onChange={e => this.handleInputChange(e, 'numTokens')} wide type='number' />
+            <Text color="grey" smallcaps>
+              {'TOKEN AMOUNT'}
+            </Text>
+            <TextInput
+              onChange={e => this.handleInputChange(e, 'numTokens')}
+              wide
+              type="number"
+            />
           </MarginDiv>
 
           <MarginDiv>
             <Button
-              onClick={this.handleApply}
-              mode='strong'
-              wide
+              onClick={e => this.handleSendTransaction('apply')}
+              mode="strong"
             >
               {'Apply Listing'}
             </Button>
           </MarginDiv>
 
-          <MarginDiv>
-            {Number(balances.get('registryAllowance')) < toUnitAmount(parameters.get('minDeposit'), 18) &&
-              <Text color='grey' smallcaps>{'YOU NEED TO APPROVE'}</Text>
-            }
-            <Button
-              onClick={e => this.handleApprove('registry')}
-              mode='strong'
-              wide
-            >
-              {'Approve tokens for Registry'}
-            </Button>
-          </MarginDiv>
-          <SidePanelSeparator />
-        </SidePanel>
-
-        <SidePanel
-          title="U D A P P"
-          opened={this.state.openCallPanel}
-          onClose={this.closeSidePanel}
-        >
-          <SidePanelSplit children={[
-            <Section>
-              <Text weight='bold'>{'Challenge Period'}</Text>
-              <h1>{`Commit: ${parameters.get('commitStageLen')} seconds & Reveal: ${parameters.get('revealStageLen')} seconds`}</h1>
-            </Section>,
-            <Section>
-              <Text weight='bold'>{'Minimum Deposit'}</Text>
-              <h2>{toUnitAmount(parameters.get('minDeposit'), 18).toString()} {token.symbol}</h2>
-            </Section>
-          ]} />
-
-          <MarginDiv>
-            <Text color='grey' smallcaps>{'LISTING TO CHALLENGE'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{this.state.selectedOne && this.state.selectedOne.get('listingString')}</Text>
-          </MarginDiv>
-
           <SidePanelSeparator />
 
+          {/* if you wanna see approve, you'll see it */}
+          {/* if not, and your current allowance is greater than the minimum deposit, you won't see it */}
           <MarginDiv>
-            <Icon name='exclamation triangle' size='small' />
-            <Text color='grey' smallcaps>{'WARNING'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{translate('sidebar_challenge_instructions')}</Text>
-          </MarginDiv>
-
-          <MarginDiv>
-            {Number(balances.get('registryAllowance')) < toUnitAmount(parameters.get('minDeposit'), 18) ?
-              <MarginDiv>
-                <MarginDiv>
-                  <Text color='grey' smallcaps>{'TOKEN AMOUNT TO APPROVE'}</Text>
-                  <TextInput onChange={e => this.handleInputChange(e, 'numTokens')} wide type='number' />
-                </MarginDiv>
-                <MarginDiv>
-                  <Button
-                    onClick={e => this.handleApprove('registry')}
-                    mode='strong'
-                    wide
-                  >
-                    {'Approve tokens for Registry'}
-                  </Button>
-                </MarginDiv>
-              </MarginDiv>
-              : <Button
-                onClick={this.handleChallenge}
-                mode='strong'
-                wide
+            {this.state.visibleApprove ? (
+              <Button
+                onClick={e =>
+                  this.handleSendTransaction('approve', null, 'registry')
+                }
+                mode="strong"
               >
-                {'CHALLENGE'}
+                {'Approve tokens for Registry'}
               </Button>
-            }
+            ) : (
+              <div>
+                {BN(balances.get('registryAllowance')).lt(
+                  BN(toUnitAmount(parameters.get('minDeposit'), 18))
+                ) ? (
+                  <div>
+                    <Text color="red">{'YOU NEED TO APPROVE'}</Text>
+                    <Button
+                      onClick={e =>
+                        this.handleSendTransaction('approve', null, 'registry')
+                      }
+                      mode="strong"
+                    >
+                      {'Approve tokens for Registry'}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={this.openApprove} mode="">
+                    {'Show approve'}
+                  </Button>
+                )}
+              </div>
+            )}
           </MarginDiv>
         </SidePanel>
-
-
 
         <SidePanel
           title="Challenge listing"
           opened={this.state.openChallenge}
           onClose={this.closeSidePanel}
         >
-          <SidePanelSplit children={[
-            <Section>
-              <Text weight='bold'>{'Challenge Period'}</Text>
-              <h1>{`Commit: ${parameters.get('commitStageLen')} seconds & Reveal: ${parameters.get('revealStageLen')} seconds`}</h1>
-            </Section>,
-            <Section>
-              <Text weight='bold'>{'Minimum Deposit'}</Text>
-              <h2>{toUnitAmount(parameters.get('minDeposit'), 18).toString()} {token.symbol}</h2>
-            </Section>
-          ]} />
+          <SideSplit
+            leftTitle={'Challenge Period'}
+            leftItem={
+              <div>{`Commit: ${parameters.get(
+                'commitStageLen'
+              )} seconds & Reveal: ${parameters.get(
+                'revealStageLen'
+              )} seconds`}</div>
+            }
+            rightTitle={'Minimum Deposit'}
+            rightItem={
+              <div>
+                {toUnitAmount(parameters.get('minDeposit'), 18).toString()}{' '}
+                {token.symbol}
+              </div>
+            }
+          />
 
-          <MarginDiv>
-            <Text color='grey' smallcaps>{'LISTING TO CHALLENGE'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{this.state.selectedOne && this.state.selectedOne.get('listingString')}</Text>
-          </MarginDiv>
+          <SideSplit
+            leftTitle={'Token Balance'}
+            leftItem={balances.get('token')}
+            rightTitle={'Registry Allowance'}
+            rightItem={withCommas(balances.get('registryAllowance'))}
+          />
+
+          <SideText
+            small
+            title={'LISTING'}
+            text={
+              this.state.selectedOne &&
+              this.state.selectedOne.get('listingString')
+            }
+          />
+
+          <SideText
+            small
+            title={'WARNING'}
+            text={translate('sidebar_challenge_instructions')}
+            icon={'exclamation triangle'}
+          />
 
           <SidePanelSeparator />
 
           <MarginDiv>
-            <Icon name='exclamation triangle' size='small' />
-            <Text color='grey' smallcaps>{'WARNING'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{translate('sidebar_challenge_instructions')}</Text>
-          </MarginDiv>
-
-          <MarginDiv>
-            {Number(balances.get('registryAllowance')) < toUnitAmount(parameters.get('minDeposit'), 18) ?
+            {Number(balances.get('registryAllowance')) <
+            toUnitAmount(parameters.get('minDeposit'), 18) ? (
               <MarginDiv>
                 <MarginDiv>
-                  <Text color='grey' smallcaps>{'TOKEN AMOUNT TO APPROVE'}</Text>
-                  <TextInput onChange={e => this.handleInputChange(e, 'numTokens')} wide type='number' />
+                  <Text color="grey" smallcaps>
+                    {'TOKEN AMOUNT TO APPROVE'}
+                  </Text>
+                  <TextInput
+                    onChange={e => this.handleInputChange(e, 'numTokens')}
+                    wide
+                    type="number"
+                  />
                 </MarginDiv>
                 <MarginDiv>
                   <Button
-                    onClick={e => this.handleApprove('registry')}
-                    mode='strong'
+                    onClick={e =>
+                      this.handleSendTransaction('approve', null, 'registry')
+                    }
+                    mode="strong"
                     wide
                   >
                     {'Approve tokens for Registry'}
                   </Button>
                 </MarginDiv>
               </MarginDiv>
-              : <Button
-                onClick={this.handleChallenge}
-                mode='strong'
+            ) : (
+              <Button
+                onClick={e => this.handleSendTransaction('challenge')}
+                mode="strong"
                 wide
               >
                 {'CHALLENGE'}
               </Button>
-            }
+            )}
           </MarginDiv>
         </SidePanel>
-
-
 
         <SidePanel
           title="Commit Vote"
           opened={this.state.openCommitVote}
           onClose={this.closeSidePanel}
         >
-          <SidePanelSplit children={[
-            <Section>
-              <Text weight='bold'>{'Commit Period'}</Text>
-              <h1>{`Commit: ${parameters.get('commitStageLen')} seconds`}</h1>
-            </Section>,
-            <Section>
-              <Text weight='bold'>{'POLL ID'}</Text>
-              <h2>{this.state.selectedOne && this.state.selectedOne.getIn(['latest', 'pollID'])}</h2>
-            </Section>
-          ]} />
+          <SideSplit
+            leftTitle={'Poll ID'}
+            leftItem={
+              this.state.selectedOne &&
+              this.state.selectedOne.getIn(['latest', 'pollID'])
+            }
+            rightTitle={'Token Balance'}
+            rightItem={withCommas(balances.get('token'))}
+          />
 
-          <MarginDiv>
-            <Icon name='lock' />
-            <Text color='grey' smallcaps>{'COMMIT VOTE'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{this.state.selectedOne && this.state.selectedOne.get('listingString')}</Text>
-          </MarginDiv>
+          {/* TODO: show inc/dec numTokens depending on user input */}
+          <SideSplit
+            leftTitle={'Voting Rights'}
+            leftItem={balances.get('votingRights')}
+            rightTitle={'Voting Allowance'}
+            rightItem={withCommas(balances.get('votingAllowance'))}
+          />
+
+          <SideText
+            small
+            title={'COMMIT VOTE'}
+            text={
+              this.state.selectedOne &&
+              this.state.selectedOne.get('listingString')
+            }
+            icon={'lock'}
+          />
 
           <SidePanelSeparator />
 
           <MarginDiv>
-            <Icon name='exclamation triangle' size='small' />
-            <Text color='grey' smallcaps>{'WARNING'}</Text>
-          </MarginDiv>
-          <MarginDiv>
+            <SideText text={'Token Amount'} small />
+            <TextInput
+              onChange={e => this.handleInputChange(e, 'numTokens')}
+              wide
+              type="number"
+            />
+
             {balances.get('votingRights') === '0' ? (
-              <div>
-                <Text>{translate('sidebar_requestVotingRights_instructions')}</Text>
-                <TextInput onChange={e => this.handleInputChange(e, 'numTokens')} wide type='number' />
-              </div>
-            ) : (
-                <div>
-                  <MarginDiv>
-                    <Text>{translate('sidebar_commitVote_instructions')}</Text>
-                  </MarginDiv>
-                  <MarginDiv>
-                    <TextInput onChange={e => this.handleInputChange(e, 'numTokens')} wide type='number' />
-                  </MarginDiv>
-                </div>
-              )}
-          </MarginDiv>
-
-
-          {balances.get('votingRights') === '0' ? (
-            <MarginDiv>
-              <Button
-                onClick={this.handleRequestVotingRights}
-                mode='strong'
-                wide
-              >
-                {'Request Voting Rights'}
-              </Button>
-            </MarginDiv>
-          ) : (
               <MarginDiv>
+                <SideText
+                  text={translate('sidebar_requestVotingRights_instructions')}
+                />
                 <Button
-                  onClick={e => this.handleCommitVote(1)}
-                  emphasis='positive'
-                  mode='strong'
+                  onClick={e =>
+                    this.handleSendTransaction('requestVotingRights')
+                  }
+                  mode="strong"
+                  wide
+                >
+                  {'Request Voting Rights'}
+                </Button>
+              </MarginDiv>
+            ) : (
+              <MarginDiv>
+                <SideText text={translate('sidebar_commitVote_instructions')} />
+                <Button
+                  onClick={e =>
+                    this.handleSendTransaction('commitVote', null, null, 1)
+                  }
+                  emphasis="positive"
+                  mode="strong"
                 >
                   {'Support the applicant'}
-                </Button>
-                {' '}
+                </Button>{' '}
                 <Button
-                  onClick={e => this.handleCommitVote(0)}
-                  emphasis='negative'
-                  mode='strong'
+                  onClick={e =>
+                    this.handleSendTransaction('commitVote', null, null, 0)
+                  }
+                  emphasis="negative"
+                  mode="strong"
                 >
                   {'Oppose the applicant'}
                 </Button>
-                <Button
-                  onClick={e => this.handleApprove('voting')}
-                  mode='strong'
-                  wide
-                >
-                  {'Approve tokens for Voting'}
-                </Button>
               </MarginDiv>
             )}
-          <SidePanelSeparator />
+          </MarginDiv>
+
+          <MarginDiv>
+            <SideText text={translate('sidebar_approve_instructions')} />
+            <Button
+              onClick={e =>
+                this.handleSendTransaction('approve', null, 'voting')
+              }
+              mode="strong"
+              wide
+            >
+              {'Approve tokens for Voting'}
+            </Button>
+          </MarginDiv>
+
+          <JSONTree
+            invertTheme={false}
+            theme={jsonTheme}
+            data={balances}
+            shouldExpandNode={(keyName, data, level) => false}
+          />
         </SidePanel>
 
         <SidePanel
@@ -580,51 +620,48 @@ class Home extends Component {
           opened={this.state.openRevealVote}
           onClose={this.closeSidePanel}
         >
-          <SidePanelSplit children={[
-            <Section>
-              <Text weight='bold'>{'Reveal Token'}</Text>
-              <h1>{`Reveal: ${parameters.get('revealStageLen')} seconds`}</h1>
-            </Section>,
-            <Section>
-              <Text weight='bold'>{'POLL ID'}</Text>
-              <h2>{this.state.selectedOne && this.state.selectedOne.getIn(['latest', 'pollID'])}</h2>
-            </Section>
-          ]} />
+          <SideSplit
+            leftTitle={'Reveal Period'}
+            leftItem={`Reveal: ${parameters.get('revealStageLen')} seconds`}
+            rightTitle={'POLL ID'}
+            rightItem={
+              this.state.selectedOne &&
+              this.state.selectedOne.getIn(['latest', 'pollID'])
+            }
+          />
+          <SideSplit
+            leftTitle={'Token Balance'}
+            leftItem={withCommas(balances.get('token'))}
+            rightTitle={'Voting Allowance'}
+            rightItem={withCommas(balances.get('votingAllowance'))}
+          />
 
-          <MarginDiv>
-            <Icon name='unlock' />
-            <Text color='grey' smallcaps>{'REVEAL VOTE'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{this.state.selectedOne && this.state.selectedOne.get('listingString')}</Text>
-          </MarginDiv>
+          <SideText icon={'unlock'} small text={'REVEAL VOTE'} />
+          <SideText
+            small
+            text={
+              this.state.selectedOne &&
+              this.state.selectedOne.get('listingString')
+            }
+          />
 
           <SidePanelSeparator />
 
-          <MarginDiv>
-            <Text color='grey' smallcaps>{'INSTRUCTIONS'}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            <Text>{translate('sidebar_revealVote_instructions')}</Text>
-          </MarginDiv>
-          <MarginDiv>
-            {this.state.selectedOne && this.state.selectedOne.getIn(['latest', 'revealExpiry', 'timeleft']) > 0 && (
-              <FileInput
-                type='file'
-                name='file'
-                onChange={this.handleFileInput}
-              />
-            )}
-          </MarginDiv>
+          <SideText icon={'check circle'} small text={'INSTRUCTIONS'} />
 
-          {/* <MarginDiv>
-            <TextInput onChange={e => this.handleInputChange(e, 'salt')} wide type='number' />
-          </MarginDiv> */}
+          <SideText text={translate('sidebar_revealVote_instructions')} />
 
+          <MarginDiv>
+            <FileInput
+              type="file"
+              name="file"
+              onChange={this.handleFileInput}
+            />
+          </MarginDiv>
           <MarginDiv>
             <Button
-              onClick={this.handleRevealVote}
-              mode='strong'
+              onClick={e => this.handleSendTransaction('revealVote')}
+              mode="strong"
               wide
             >
               {'Reveal Vote'}
@@ -632,203 +669,344 @@ class Home extends Component {
           </MarginDiv>
         </SidePanel>
 
-        {/* listings */}
-        <HomeWrapper>
-          {'CANDIDATES'}
-          <Table
-            header={
-              <TableRow>
-                <TableHeader title="Listing" />
-                <TableHeader title="Time Remaining" />
-                <TableHeader title="Staked Tokens" />
-                <TableHeader title="Badges" />
-                <TableHeader title="Actions" />
-              </TableRow>
+        <SidePanel
+          title="Claim Voter Reward"
+          opened={this.state.openClaimVoterReward}
+          onClose={this.closeSidePanel}
+        >
+          <SideSplit
+            leftTitle={'Reveal Period'}
+            leftItem={`Reveal: ${parameters.get('revealStageLen')} seconds`}
+            rightTitle={'POLL ID'}
+            rightItem={
+              this.state.selectedOne &&
+              this.state.selectedOne.getIn(['latest', 'pollID'])
             }
-          >
-            {candidates.map(one => (
-              <TableRow key={one.get('listingHash')}>
-                {/* stats */}
-                <TableCell>
-                  <Text>{one.get('listingString')}</Text>
-                </TableCell>
-                <TableCell>
-                  {!dateHasPassed(one.getIn(['latest', 'appExpiry', 'date'])) ?
-                    <Countdown end={one.getIn(['latest', 'appExpiry', 'date'])} /> :
-                    'Ready to update'
-                  }
-                </TableCell>
-                <TableCell>
-                  {one.getIn(['latest', 'numTokens'])}
-                </TableCell>
-                <TableCell>
-                  {one.get('owner') === account ?
-                    <div>
-                      <Icon name='exclamation circle' size='large' color='yellow' />
-                      <Icon name='check circle' size='large' color='blue' />
-                    </div>
-                    : <Icon name='exclamation circle' size='large' color='yellow' />}
-                </TableCell>
-                {/* actions */}
-                <TableCell>
-                  {one.get('owner') === account ? (
-                    <ContextMenu>
-                      {one.getIn(['latest', 'appExpired']) &&
-                        <CMItem onClick={e => this.handleUpdateStatus(one)}>
-                          <Icon name='magic' size='large' color='purple' />
-                          {'Update Status'}
-                        </CMItem>
-                      }
-                      <CMItem onClick={e => this.handleExit(one)}>
-                        <Icon name='remove circle outline' size='large' color='orange' />
-                        {'Remove Listing'}
-                      </CMItem>
-                      <CMItem onClick={e => this.handleDepositWithdraw(one, 'deposit')}>
-                        <Icon name='angle double up' size='large' color='green' />
-                        {'Deposit Tokens'}
-                      </CMItem>
-                      <CMItem onClick={e => this.handleDepositWithdraw(one, 'withdraw')}>
-                        <Icon name='angle double down' size='large' color='yellow' />
-                        {'Withdraw Tokens'}
-                      </CMItem>
-                      <CMItem onClick={e => this.openSidePanel(one, 'openChallenge')}>
-                        <Icon name='remove circle outline' size='large' color='orange' />
-                        {'Challenge Listing'}
-                      </CMItem>
-                    </ContextMenu>
-                  ) : (
+          />
+          <SideSplit
+            leftTitle={'Token Balance'}
+            leftItem={withCommas(balances.get('token'))}
+            rightTitle={'Voting Allowance'}
+            rightItem={withCommas(balances.get('votingAllowance'))}
+          />
+
+          <SideText icon={'unlock'} small text={'CLAIM VOTER REWARD'} />
+          <SideText small text={this.state.voterReward} />
+
+          <SidePanelSeparator />
+
+          <SideText icon={'check circle'} small text={'INSTRUCTIONS'} />
+
+          <SideText text={translate('sidebar_claimVoterReward_instructions')} />
+
+          <MarginDiv>
+            <FileInput
+              type="file"
+              name="file"
+              onChange={this.handleFileInput}
+            />
+          </MarginDiv>
+          <MarginDiv>
+            <Button
+              onClick={e =>
+                this.handleSendTransaction('claimVoterReward', null, 'registry')
+              }
+              mode="strong"
+              wide
+            >
+              {'Claim Voter Reward'}
+            </Button>
+          </MarginDiv>
+        </SidePanel>
+
+        <HomeWrapper>
+          <MarginDiv>
+            <Button mode="strong" onClick={this.openSidePanel}>
+              {'Apply Listing'}
+            </Button>
+          </MarginDiv>
+
+          {candidates.size > 0 && (
+            <div>
+              {'CANDIDATES'}
+              <Table
+                header={
+                  <TableRow>
+                    <TableHeader title="Listing" />
+                    <TableHeader title="Time Remaining" />
+                    <TableHeader title="Staked Tokens" />
+                    <TableHeader title="Badges" />
+                    <TableHeader title="Actions" />
+                  </TableRow>
+                }
+              >
+                {candidates.map(one => (
+                  <TableRow key={one.get('listingHash')}>
+                    {/* stats */}
+                    <TableCell>
+                      <Text>{one.get('listingString')}</Text>
+                    </TableCell>
+                    <TableCell>
+                      {!dateHasPassed(one.getIn(['appExpiry', 'date'])) ? (
+                        <Countdown end={one.getIn(['appExpiry', 'date'])} />
+                      ) : (
+                        'Ready to update'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <JSONTree
+                        invertTheme={false}
+                        theme={jsonTheme}
+                        data={one}
+                        shouldExpandNode={(keyName, data, level) => false}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <Icon
+                          name="exclamation circle"
+                          size="large"
+                          color="yellow"
+                        />
+                        {one.get('owner') === account && (
+                          <Icon name="check circle" size="large" color="blue" />
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* actions */}
+                    <TableCell>
                       <ContextMenu>
-                        {one.getIn(['latest', 'appExpired']) &&
-                          <CMItem onClick={e => this.handleUpdateStatus(one)}>
-                            <Icon name='magic' size='large' color='purple' />
+                        {one.get('appExpired') && (
+                          <CMItem
+                            onClick={e =>
+                              this.handleSendTransaction('updateStatus', one)
+                            }
+                          >
+                            <Icon name="magic" size="large" color="purple" />
                             {'Update Status'}
                           </CMItem>
-                        }
-                        <CMItem onClick={e => this.openSidePanel(one, 'openChallenge')}>
-                          <Icon name='remove circle outline' size='large' color='orange' />
+                        )}
+                        <CMItem
+                          onClick={e =>
+                            this.openSidePanel(one, 'openChallenge')
+                          }
+                        >
+                          <Icon
+                            name="exclamation circle"
+                            size="large"
+                            color="red"
+                          />
                           {'Challenge Listing'}
                         </CMItem>
                       </ContextMenu>
-                    )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </Table>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </Table>
+            </div>
+          )}
 
-          {'FACEOFFS'}
-          <Table
-            header={
-              <TableRow>
-                <TableHeader title="Listing" />
-                <TableHeader title="Time Remaining" />
-                <TableHeader title="Number of Tokens Voted" />
-                <TableHeader title="Badges" />
-                <TableHeader title="Actions" />
-              </TableRow>
-            }
-          >
-            {faceoffs.map(one => (
-              <TableRow key={one.get('listingHash')}>
-                <TableCell>
-                  <Text>{one.get('listingString')}</Text>
-                </TableCell>
+          {faceoffs.size > 0 && (
+            <div>
+              {'FACEOFFS'}
+              <Table
+                header={
+                  <TableRow>
+                    <TableHeader title="Listing" />
+                    <TableHeader title="Time Remaining" />
+                    <TableHeader title="Number of Tokens Voted" />
+                    <TableHeader title="Badges" />
+                    <TableHeader title="Actions" />
+                  </TableRow>
+                }
+              >
+                {faceoffs.map(one => (
+                  <TableRow key={one.get('listingHash')}>
+                    <TableCell>
+                      <Text>{one.get('listingString')}</Text>
+                    </TableCell>
 
-                <TableCell>
-                  {!dateHasPassed(one.getIn(['latest', 'commitEndDate']))
-                    ? <Countdown end={one.getIn(['latest', 'commitExpiry', 'date'])} />
-                    : !dateHasPassed(one.getIn(['latest', 'revealEndDate']))
-                      ? <Countdown end={one.getIn(['latest', 'revealExpiry', 'date'])} />
-                      : 'Ready to update'
-                  }
-                </TableCell>
+                    <TableCell>
+                      {!dateHasPassed(
+                        one.getIn(['latest', 'commitEndDate'])
+                      ) ? (
+                        <Countdown
+                          end={one.getIn(['latest', 'commitExpiry', 'date'])}
+                        />
+                      ) : !dateHasPassed(
+                        one.getIn(['latest', 'revealEndDate'])
+                      ) ? (
+                        <Countdown
+                          end={one.getIn(['latest', 'revealExpiry', 'date'])}
+                        />
+                      ) : (
+                        'Ready to update'
+                      )}
+                    </TableCell>
 
-                <TableCell>
-                  <Text>{one.get('listingString')}</Text>
-                </TableCell>
+                    <TableCell>
+                      <JSONTree
+                        invertTheme={false}
+                        theme={jsonTheme}
+                        data={one}
+                        shouldExpandNode={(keyName, data, level) => false}
+                      />
+                    </TableCell>
 
-                <TableCell>
-                  {one.get('owner') === account ?
-                    <div>
-                      <Icon name='exclamation circle' size='large' color='orange' />
-                      <Icon name='check circle' size='large' color='blue' />
-                    </div>
-                    : <Icon name='exclamation circle' size='large' color='orange' />}
-                </TableCell>
-
-                <TableCell>
-                  <ContextMenu>
-                    {dateHasPassed(one.getIn(['latest', 'revealEndDate'])) &&
-                      <CMItem onClick={e => this.handleUpdateStatus(one)}>
-                        <Icon name='magic' size='large' color='purple' />
+                    <TableCell>
+                      {one.get('owner') === account ? (
                         <div>
-                          {'Update Status'}
+                          <Icon
+                            name="exclamation circle"
+                            size="large"
+                            color="orange"
+                          />
+                          <Icon name="check circle" size="large" color="blue" />
                         </div>
-                      </CMItem>
-                    }
-                    {dateHasPassed(one.getIn(['latest', 'revealEndDate'])) &&
-                      <CMItem onClick={e => this.handleRescueTokens(one)}>
-                        <Icon name='exclaimation circle' size='large' color='orange' />
-                        {'Rescue Tokens'}
-                      </CMItem>
-                    }
-                    {!dateHasPassed(one.getIn(['latest', 'commitEndDate'])) &&
-                      <CMItem onClick={e => this.openSidePanel(one, 'openCommitVote')}>
-                        <Icon name='check circle' size='large' color='orange' />
-                        {'Commit Token Vote'}
-                      </CMItem>
-                    }
-                    {dateHasPassed(one.getIn(['latest', 'commitEndDate'])) && !dateHasPassed(one.getIn(['latest', 'revealEndDate'])) &&
-                      <CMItem onClick={e => this.openSidePanel(one, 'openRevealVote')}>
-                        <Icon name='unlock' size='large' color='orange' />
-                        {'Reveal Token Vote'}
-                      </CMItem>
-                    }
-                  </ContextMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </Table>
+                      ) : (
+                        <Icon
+                          name="exclamation circle"
+                          size="large"
+                          color="orange"
+                        />
+                      )}
+                    </TableCell>
 
+                    <TableCell>
+                      <ContextMenu>
+                        {!dateHasPassed(
+                          one.getIn(['latest', 'commitEndDate'])
+                        ) && (
+                          <CMItem
+                            onClick={e =>
+                              this.openSidePanel(one, 'openCommitVote')
+                            }
+                          >
+                            <Icon
+                              name="check circle"
+                              size="large"
+                              color="orange"
+                            />
+                            {'Commit Token Vote'}
+                          </CMItem>
+                        )}
+                        {dateHasPassed(
+                          one.getIn(['latest', 'commitEndDate'])
+                        ) &&
+                          !dateHasPassed(
+                            one.getIn(['latest', 'revealEndDate'])
+                          ) && (
+                            <CMItem
+                              onClick={e =>
+                                this.openSidePanel(one, 'openRevealVote')
+                              }
+                            >
+                              <Icon name="unlock" size="large" color="orange" />
+                              {'Reveal Token Vote'}
+                            </CMItem>
+                          )}
+                        {dateHasPassed(
+                          one.getIn(['latest', 'revealEndDate'])
+                        ) && (
+                          <div>
+                            <CMItem
+                              onClick={e =>
+                                this.handleSendTransaction('updateStatus', one)
+                              }
+                            >
+                              <Icon name="magic" size="large" color="purple" />
+                              <div>{'Update Status'}</div>
+                            </CMItem>
+                            <CMItem
+                              onClick={e =>
+                                this.handleSendTransaction('rescueTokens', one)
+                              }
+                            >
+                              <Icon
+                                name="exclamation circle"
+                                size="large"
+                                color="orange"
+                              />
+                              {'Rescue Tokens'}
+                            </CMItem>
+                            <CMItem
+                              onClick={e =>
+                                this.openSidePanel(one, 'openClaimVoterReward')
+                              }
+                            >
+                              <Icon name="check" size="large" color="orange" />
+                              {'Claim Voter Reward'}
+                            </CMItem>
+                          </div>
+                        )}
+                      </ContextMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </Table>
+            </div>
+          )}
 
-          {'REGISTRY'}
-          <Table
-            header={
-              <TableRow>
-                <TableHeader title="Listing" />
-                <TableHeader title="Deposit" />
-                <TableHeader title="Registered on block" />
-                <TableHeader title="Actions" />
-              </TableRow>
-            }
-          >
-            {whitelist.map(one => (
-              <TableRow key={one.get('listingHash')}>
-                <TableCell>
-                  <Text>{one.get('listingString')}</Text>
-                </TableCell>
+          {whitelist.size > 0 && (
+            <div>
+              {'REGISTRY'}
+              <Table
+                header={
+                  <TableRow>
+                    <TableHeader title="Listing" />
+                    <TableHeader title="Deposit" />
+                    <TableHeader title="Registered on block" />
+                    <TableHeader title="Actions" />
+                  </TableRow>
+                }
+              >
+                {whitelist.map(one => (
+                  <TableRow key={one.get('listingHash')}>
+                    <TableCell>
+                      <Text>{one.get('listingString')}</Text>
+                    </TableCell>
 
-                <TableCell>
-                  {one.getIn(['latest', 'numTokens'])}
-                </TableCell>
+                    <TableCell>{one.getIn(['latest', 'numTokens'])}</TableCell>
 
-                <TableCell>
-                  {one.getIn(['latest', 'blockNumber'])}
-                </TableCell>
+                    <TableCell>
+                      <JSONTree
+                        invertTheme={false}
+                        theme={jsonTheme}
+                        data={one}
+                        shouldExpandNode={(keyName, data, level) => false}
+                      />
+                    </TableCell>
 
-                <TableCell>
-                  <ContextMenu>
-                    <CMItem onClick={e => this.openSidePanel(one, 'openChallenge')}>
-                      <Icon name='remove circle outline' size='large' color='orange' />
-                      {'Challenge Listing'}
-                    </CMItem>
-                  </ContextMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </Table>
-
-          <Button mode='strong' onClick={this.openSidePanel}>{'Apply'}</Button>
-          <Button mode='strong' onClick={this.openCallPanel}>{'Call'}</Button>
+                    <TableCell>
+                      <ContextMenu>
+                        <CMItem
+                          onClick={e =>
+                            this.openSidePanel(one, 'openChallenge')
+                          }
+                        >
+                          <Icon
+                            name="remove circle outline"
+                            size="large"
+                            color="orange"
+                          />
+                          {'Challenge Listing'}
+                        </CMItem>
+                        <CMItem
+                          onClick={e =>
+                            this.openSidePanel(one, 'openClaimVoterReward')
+                          }
+                        >
+                          <Icon name="check" size="large" color="orange" />
+                          {'Claim Voter Reward'}
+                        </CMItem>
+                      </ContextMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </Table>
+            </div>
+          )}
         </HomeWrapper>
       </div>
     )
@@ -845,7 +1023,6 @@ const CMItem = styled.div`
     padding: 5px;
   }
 `
-
 const FileInput = styled.input`
   padding: 1em;
   border: 2px solid ${colors.prism};
@@ -861,12 +1038,13 @@ function mapDispatchToProps(dispatch) {
 }
 
 const mapStateToProps = createStructuredSelector({
+  error: selectError,
   ethjs: selectEthjs,
   account: selectAccount,
   networkID: selectNetworkID,
 
   balances: selectBalances,
-  txnStatus: selectTxnStatus,
+  miningStatus: selectMiningStatus,
 
   registry: selectRegistry,
   token: selectToken,
@@ -877,6 +1055,8 @@ const mapStateToProps = createStructuredSelector({
   candidates: selectCandidates,
   faceoffs: selectFaceoffs,
   whitelist: selectWhitelist,
+  registryMethods: selectRegistryMethods,
+  votingMethods: selectVotingMethods,
 })
 
 const withConnect = connect(mapStateToProps, mapDispatchToProps)
