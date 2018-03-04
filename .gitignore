@@ -26,3 +26,21 @@ src/abis/PLCRVoting.json
 src/abis/Registry.json
 
 src/abis/Migrations.json
+
+src/abis/AttributeStore.json
+
+src/abis/DLL.json
+
+src/abis/EIP20Interface.json
+
+src/abis/EIP20.json
+
+src/abis/Parameterizer.json
+
+src/abis/EIP20.json
+
+src/abis/Parameterizer.json
+
+src/abis/PLCRVoting.json
+
+src/abis/Registry.json
